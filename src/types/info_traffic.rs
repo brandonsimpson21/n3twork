@@ -6,9 +6,12 @@ pub mod info_traffic {
 
     use indexmap::IndexMap;
 
-    use crate::types::{address_port_pair::address_port_pair::AddressPortPair, host::host::Host, info_address_port_pair::info_address_port_pair::InfoAddressPortPair, data_info_host::data_info_host::DataInfoHost, data_info::data_info::DataInfo, traffic_direction::traffic_direction::TrafficDirection};
-
-
+    use crate::types::{
+        address_port_pair::address_port_pair::AddressPortPair, data_info::data_info::DataInfo,
+        data_info_host::data_info_host::DataInfoHost, host::host::Host,
+        info_address_port_pair::info_address_port_pair::InfoAddressPortPair,
+        traffic_direction::traffic_direction::TrafficDirection,
+    };
 
     /// Struct to be shared between the threads in charge of parsing packets and update reports.
     pub struct InfoTraffic {

@@ -1,7 +1,9 @@
 //! Module defining the `Filters` struct, which represents the possible filters applicable on network traffic.
 pub mod filters {
-    use crate::types::{ip_version::IpVersion, trans_protocol::trans_protocol::TransProtocol, app_protocol::app_protocol::AppProtocol};
-
+    use crate::types::{
+        app_protocol::app_protocol::AppProtocol, ip_version::IpVersion,
+        trans_protocol::trans_protocol::TransProtocol,
+    };
 
     /// Possible filters applicable to network traffic
     #[derive(Clone, Copy)]

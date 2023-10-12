@@ -6,7 +6,13 @@ pub mod info_address_port_pair {
 
     use chrono::{DateTime, Local};
 
-    use crate::{types::{app_protocol::app_protocol::AppProtocol, traffic_direction::traffic_direction::TrafficDirection}, utils::get_formatted_bytes_string};
+    use crate::{
+        types::{
+            app_protocol::app_protocol::AppProtocol,
+            traffic_direction::traffic_direction::TrafficDirection,
+        },
+        utils::get_formatted_bytes_string,
+    };
 
     /// Struct useful to format the output report file and to keep track of statistics about the sniffed traffic.
     ///

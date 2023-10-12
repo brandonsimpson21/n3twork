@@ -2,7 +2,6 @@
 pub mod data_info_host {
     use crate::types::{data_info::data_info::DataInfo, traffic_type::traffic_type::TrafficType};
 
-
     /// Host-related information.
     #[derive(Clone, Default)]
     pub struct DataInfoHost {

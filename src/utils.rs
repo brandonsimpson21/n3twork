@@ -1,9 +1,6 @@
 use std::net::IpAddr;
 use std::path::PathBuf;
 
-use super::types::filters::filters::Filters;
-use super::types::language::language::Language;
-
 /// Application version number (to be displayed in gui footer)
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 

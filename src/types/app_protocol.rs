@@ -68,7 +68,7 @@ pub mod app_protocol {
     /// * `port` - An integer representing the transport layer port to be mapped to
     /// an application layer protocol.
     ///
-    /// //TODO 
+    /// //TODO
     /// # Example
     pub fn from_port_to_application_protocol(port: u16) -> AppProtocol {
         match port {

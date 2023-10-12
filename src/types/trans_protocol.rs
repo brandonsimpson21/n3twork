@@ -3,7 +3,6 @@ pub mod trans_protocol {
 
     use crate::types::language::language::{both_translation, Language};
 
-
     /// Enum representing the possible observed values of transport layer protocol.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     #[allow(clippy::upper_case_acronyms)]

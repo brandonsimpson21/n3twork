@@ -5,7 +5,6 @@ pub mod data_info {
 
     use crate::types::traffic_direction::traffic_direction::TrafficDirection;
 
-
     /// Amount of exchanged data (packets and bytes) incoming and outgoing
     #[derive(Clone, Default, Copy)]
     pub struct DataInfo {

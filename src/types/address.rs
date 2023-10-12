@@ -36,8 +36,6 @@ pub mod address {
 
         #[cfg(not(target_os = "windows"))]
         unsafe fn convert_sockaddr(ptr: *const libc::sockaddr) -> Option<IpAddr> {
-            use std::net::IpAddr;
-
             if ptr.is_null() {
                 return None;
             }

@@ -5,7 +5,6 @@ pub mod address_port_pair {
 
     use crate::types::trans_protocol::trans_protocol::TransProtocol;
 
-
     /// Struct representing a network address:port pair.
     #[derive(PartialEq, Eq, Hash, Clone)]
     pub struct AddressPortPair {

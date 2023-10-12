@@ -14,7 +14,6 @@ use super::{
         address_port_pair::address_port_pair::AddressPortPair,
         app_protocol::app_protocol::{from_port_to_application_protocol, AppProtocol},
         asn::asn::get_asn,
-        country::countries::get_country,
         data_info::data_info::DataInfo,
         data_info_host::data_info_host::DataInfoHost,
         filters::filters::Filters,
@@ -625,9 +624,17 @@ fn ipv6_from_long_dec_to_short_hex(ipv6_long: [u8; 16]) -> String {
 mod tests {
     use std::net::IpAddr;
 
-    use crate::{manage_packets::{mac_from_dec_to_hex, ipv6_from_long_dec_to_short_hex, get_traffic_direction, get_traffic_type, is_local_connection}, types::{address::address::Address, traffic_direction::traffic_direction::TrafficDirection, traffic_type::traffic_type::TrafficType}};
+    use crate::{
+        manage_packets::{
+            get_traffic_direction, get_traffic_type, ipv6_from_long_dec_to_short_hex,
+            is_local_connection, mac_from_dec_to_hex,
+        },
+        types::{
+            address::address::Address, traffic_direction::traffic_direction::TrafficDirection,
+            traffic_type::traffic_type::TrafficType,
+        },
+    };
 
-  
     #[test]
     fn mac_simple_test() {
         let result = mac_from_dec_to_hex([255, 255, 10, 177, 9, 15]);

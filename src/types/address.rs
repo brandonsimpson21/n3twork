@@ -13,26 +13,31 @@ pub mod address {
         pub dst_addr: Option<IpAddr>,
     }
 
-    impl Address {
-        // unsafe fn new_vec(mut ptr: *const raw::pcap_addr_t) -> Vec<Address> {
-        //     let mut vec = Vec::new();
-        //     while !ptr.is_null() {
-        //         if let Some(addr) = Address::new(ptr) {
-        //             vec.push(addr);
-        //         }
-        //         ptr = (*ptr).next;
-        //     }
-        //     vec
-        // }
+    impl Default for Address {
+        fn default() -> Self {
+            Self {
+                addr: IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)),
+                netmask: None,
+                broadcast_addr: None,
+                dst_addr: None,
+            }
+        }
+    }
 
-        // unsafe fn new(ptr: *const raw::pcap_addr_t) -> Option<Address> {
-        //     Self::convert_sockaddr((*ptr).addr).map(|addr| Address {
-        //         addr,
-        //         netmask: Self::convert_sockaddr((*ptr).netmask),
-        //         broadcast_addr: Self::convert_sockaddr((*ptr).broadaddr),
-        //         dst_addr: Self::convert_sockaddr((*ptr).dstaddr),
-        //     })
-        // }
+    impl Address {
+        unsafe fn new(
+            addr: IpAddr,
+            netmask: Option<IpAddr>,
+            broadcast_addr: Option<IpAddr>,
+            dst_addr: Option<IpAddr>,
+        ) -> Option<Address> {
+            Some(Self {
+                addr,
+                netmask,
+                broadcast_addr,
+                dst_addr,
+            })
+        }
 
         #[cfg(not(target_os = "windows"))]
         unsafe fn convert_sockaddr(ptr: *const libc::sockaddr) -> Option<IpAddr> {

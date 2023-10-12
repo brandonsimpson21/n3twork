@@ -31,7 +31,8 @@ pub mod filters {
         pub fn matches(self, rhs: Self) -> bool {
             (self.ip.eq(&IpVersion::Other) || self.ip.eq(&rhs.ip))
                 && (self.transport.eq(&TransProtocol::Other) || self.transport.eq(&rhs.transport))
-            && (self.application.eq(&AppProtocol::Other) || self.application.eq(&rhs.application))
+                && (self.application.eq(&AppProtocol::Other)
+                    || self.application.eq(&rhs.application))
         }
     }
 }

@@ -1,14 +1,8 @@
 use std::{
-    collections::{hash_map::Entry, BTreeMap, HashMap, LinkedList, VecDeque},
-    net::{IpAddr, Ipv4Addr, Ipv6Addr},
-    sync::{
-        atomic::{AtomicPtr, AtomicUsize, Ordering},
-        Arc, Mutex, RwLock,
-    },
+    collections::VecDeque,
     time::{Duration, Instant},
 };
 
-use iroh::bytes::store::bao_tree::blake3::Hash;
 use slab::Slab;
 
 pub struct TimerWheel<T> {
@@ -17,8 +11,8 @@ pub struct TimerWheel<T> {
     last_tick: Instant,
     tick_duration: Duration,
     wheel_duration: Duration,
-    wheel: Slab<LinkedList<T>>,
-    expired: LinkedList<T>,
+    wheel: Slab<VecDeque<T>>,
+    expired: VecDeque<T>,
 }
 
 impl<T> std::fmt::Debug for TimerWheel<T> {
@@ -46,7 +40,7 @@ impl<T> TimerWheel<T> {
         let wheel_duration = max;
         let mut wheel = Slab::with_capacity(wheel_len);
         for _ in 0..wheel_len {
-            wheel.insert(LinkedList::new());
+            wheel.insert(VecDeque::new());
         }
         Self {
             current_tick: 0,
@@ -55,7 +49,7 @@ impl<T> TimerWheel<T> {
             wheel_duration,
             wheel_len,
             wheel,
-            expired: LinkedList::new(),
+            expired: VecDeque::new(),
         }
     }
 

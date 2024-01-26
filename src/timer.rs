@@ -4,6 +4,10 @@ use std::{
 };
 
 use slab::Slab;
+use tokio::sync::mpsc::{self, error::TrySendError};
+
+use crate::error::N3tworkError;
+use tracing::warn;
 
 pub struct TimerWheel<T> {
     current_tick: usize,
@@ -29,7 +33,7 @@ impl<T> std::fmt::Debug for TimerWheel<T> {
 
 impl<T> Default for TimerWheel<T> {
     fn default() -> Self {
-        Self::new(Duration::from_secs(60), Duration::from_secs(60 * 30))
+        Self::new(Duration::from_secs(1), Duration::from_secs(60 * 30))
     }
 }
 
@@ -79,7 +83,7 @@ impl<T> TimerWheel<T> {
         if tick > self.wheel_len as u128 {
             tick = self.wheel_len as u128;
         }
-        for i in 0..tick {
+        for _i in 0..tick {
             self.current_tick += 1;
             if self.current_tick >= self.wheel_len {
                 self.current_tick = 0;
@@ -90,7 +94,6 @@ impl<T> TimerWheel<T> {
                     let val = self.wheel[self.current_tick].pop_back().unwrap();
                     self.expired.push_back(val);
                 }
-                //    self.expired.append(&mut self.wheel[self.current_tick]);
             }
         }
         self.last_tick =
@@ -109,13 +112,54 @@ impl<T> TimerWheel<T> {
     }
 }
 
+pub struct Ticker {
+    period: Duration,
+    report_channel: mpsc::Sender<Instant>,
+}
+
+impl Ticker {
+    pub fn new(period: Duration, report_channel: mpsc::Sender<Instant>) -> Self {
+        Self {
+            period,
+            report_channel: report_channel,
+        }
+    }
+
+    pub async fn run(&mut self) -> Result<(), N3tworkError> {
+        let mut interval = tokio::time::interval(self.period);
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    let now = Instant::now();
+                    if let Err(e) = self.report_channel.try_send(now) {
+                        match e {
+                            TrySendError::Closed{..} => {
+                                warn!("ticker channel closed");
+                                break;
+                            }
+                            TrySendError::Full(_) => {
+                                warn!("ticker channel full");
+                            }
+                        }
+                    }
+                }
+                _ = self.report_channel.closed() => {
+                    warn!("ticker channel closed");
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod test_timer {
     use super::*;
 
     #[tokio::test]
     async fn test_wheel_construction() {
-        let mut wheel: TimerWheel<usize> =
+        let wheel: TimerWheel<usize> =
             TimerWheel::new(Duration::from_secs(1), Duration::from_secs(10));
         assert_eq!(wheel.wheel_len, 12);
         assert_eq!(wheel.tick_duration.as_secs(), 1);
@@ -155,9 +199,9 @@ mod test_timer {
     async fn test_wheel_add() {
         let mut wheel: TimerWheel<usize> =
             TimerWheel::new(Duration::from_secs(1), Duration::from_secs(10));
-        let val = wheel.add(1, Duration::from_secs(1));
+        let _val = wheel.add(1, Duration::from_secs(1));
         assert_eq!(Some(1), wheel.wheel[2].front().copied());
-        let val = wheel.add(2, Duration::from_secs(1));
+        let _val = wheel.add(2, Duration::from_secs(1));
         assert_eq!(Some(2), wheel.wheel[2].front().copied());
         assert_eq!(Some(1), wheel.wheel[2].back().copied());
 
@@ -215,5 +259,23 @@ mod test_timer {
         ta = ta.checked_add(Duration::from_secs(1)).unwrap();
         wheel.advance(ta);
         assert_eq!(0, wheel.current_tick);
+    }
+
+    #[tokio::test]
+    async fn test_ticker() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let mut ticker = Ticker::new(Duration::from_secs(1), tx);
+        let handle = tokio::task::spawn(async move { ticker.run().await });
+        let mut now = Instant::now();
+        for _ in 0..4 {
+            let val = rx.recv().await;
+            assert!(val.is_some());
+            let val = val.unwrap();
+            assert!(val >= now);
+            now = val;
+        }
+        drop(rx);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(handle.is_finished())
     }
 }

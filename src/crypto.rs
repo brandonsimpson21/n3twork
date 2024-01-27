@@ -29,14 +29,14 @@ pub const ED25519_SIGNATURE_SIZE: usize = 64;
 pub const NONCE_SIZE: usize = XCHACHA20_POLY1305_NONCE_SIZE;
 
 #[inline(always)]
-pub(crate) fn get_random_bytes(size: usize) -> Vec<u8> {
+pub fn get_random_bytes(size: usize) -> Vec<u8> {
     let rng = rand::SystemRandom::new();
     let mut bytes = vec![0u8; size];
     rng.fill(&mut bytes).expect("rng.fill failed");
     bytes
 }
 
-/// get new public and private keys
+/// get new public and private x25519 keys
 #[inline(always)]
 pub fn new_x25519_keypair() -> ([u8; X25519_SECRET_KEY_SIZE], [u8; X25519_PUBLIC_KEY_SIZE]) {
     let rng = rand::SystemRandom::new();
@@ -46,6 +46,7 @@ pub fn new_x25519_keypair() -> ([u8; X25519_SECRET_KEY_SIZE], [u8; X25519_PUBLIC
     (sec_key, pub_key)
 }
 
+/// get new public and private ed25519 keys
 #[inline(always)]
 pub fn new_ed25519_keypair() -> ([u8; ED25519_SECRET_KEY_SIZE], [u8; ED25519_PUBLIC_KEY_SIZE]) {
     let sec_key = ed25519_dalek::SigningKey::generate(&mut rand_core::OsRng);
@@ -53,6 +54,21 @@ pub fn new_ed25519_keypair() -> ([u8; ED25519_SECRET_KEY_SIZE], [u8; ED25519_PUB
     (sec_key.to_bytes(), pub_key.to_bytes())
 }
 
+/// x5119 diffie-hellman
+/// # Example.
+/// ```rust
+///     use ring::rand::{self, SecureRandom};
+///     use n3twork::crypto::{x25519_dh, new_x25519_keypair, XCHACHA20_POLY1305_NONCE_SIZE};
+///     let rng = rand::SystemRandom::new();
+///     let mut nonce = [0u8; XCHACHA20_POLY1305_NONCE_SIZE];
+///     rng.fill(&mut nonce).expect("rng.fill failed");
+///     let (alice_sec, alice_pub) = new_x25519_keypair();
+///     let (bob_sec, bob_pub) = new_x25519_keypair();
+///     assert_ne!(alice_sec, bob_sec);
+///     let alice_shared = x25519_dh(alice_sec, bob_pub, &nonce).unwrap();
+///     let bob_shared = x25519_dh(bob_sec, alice_pub, &nonce).unwrap();
+///     assert_eq!(alice_shared, bob_shared);
+/// ```
 #[inline(always)]
 pub fn x25519_dh<B>(
     sec_key: B,
@@ -69,6 +85,8 @@ where
     Ok(kdf_with_nonce(&key_material, &nonce)?)
 }
 
+/// new ephemeral keypair
+/// supported algorithms: X25519, ECDH_P256 (TODO) ECDH_P256
 #[inline(always)]
 pub fn new_ephemeral_keypair(algo: &'static Algorithm) -> (EphemeralPrivateKey, PublicKey) {
     let rng = rand::SystemRandom::new();
@@ -104,6 +122,23 @@ pub fn kdf_with_nonce(
     Ok(*key_hash.as_bytes())
 }
 
+/// encrypt data with xchacha20poly1305
+/// # Example.
+/// ```rust
+///     use n3twork::crypto::{
+///         xchacha_decrypt_data, xchacha_encrypt_data, get_random_bytes,
+///         XCHACHA20_POLY1305_NONCE_SIZE, XCHACHA20_POLY1305_KEY_SIZE};
+///     use ring::rand::{self, SecureRandom};
+///     let rng = rand::SystemRandom::new();
+///     let mut nonce = [0u8; XCHACHA20_POLY1305_NONCE_SIZE];
+///     rng.fill(&mut nonce).expect("rng.fill failed");
+///     let shared_key = get_random_bytes(XCHACHA20_POLY1305_KEY_SIZE);
+///     let plaintext = b"hello world";
+///     let aad = Some(b"some aad".as_ref());
+///     let ciphertext = xchacha_encrypt_data(&shared_key, plaintext, aad, &nonce).unwrap();
+///     let decrypted = xchacha_decrypt_data(&shared_key, &ciphertext, aad, &nonce).unwrap();
+///     assert_eq!(plaintext, decrypted.as_slice());
+/// ```
 pub fn xchacha_encrypt_data(
     key: &[u8],
     message: &[u8],
@@ -118,6 +153,23 @@ pub fn xchacha_encrypt_data(
     Ok(cipher.encrypt(nonce.into(), payload)?)
 }
 
+/// decrypt data with xchacha20poly1305
+/// # Example.
+/// ```rust
+///     use n3twork::crypto::{
+///         xchacha_decrypt_data, xchacha_encrypt_data, get_random_bytes,
+///         XCHACHA20_POLY1305_NONCE_SIZE, XCHACHA20_POLY1305_KEY_SIZE};
+///     use ring::rand::{self, SecureRandom};
+///     let rng = rand::SystemRandom::new();
+///     let mut nonce = [0u8; XCHACHA20_POLY1305_NONCE_SIZE];
+///     rng.fill(&mut nonce).expect("rng.fill failed");
+///     let shared_key = get_random_bytes(XCHACHA20_POLY1305_KEY_SIZE);
+///     let plaintext = b"hello world";
+///     let aad = Some(b"some aad".as_ref());
+///     let ciphertext = xchacha_encrypt_data(&shared_key, plaintext, aad, &nonce).unwrap();
+///     let decrypted = xchacha_decrypt_data(&shared_key, &ciphertext, aad, &nonce).unwrap();
+///     assert_eq!(plaintext, decrypted.as_slice());
+/// ```
 pub fn xchacha_decrypt_data(
     key: &[u8],
     ciphertext: &[u8],
@@ -132,6 +184,21 @@ pub fn xchacha_decrypt_data(
     Ok(cipher.decrypt(nonce.into(), payload)?)
 }
 
+/// hmac
+/// # Example.
+/// ```rust
+///     use n3twork::crypto::{
+///         hmac, verify_hmac, 
+///         get_random_bytes, XCHACHA20_POLY1305_NONCE_SIZE
+///     };
+///     use ring::hmac;
+///     let algo = hmac::HMAC_SHA256;
+///     let msg = b"hello world";
+///     let key = get_random_bytes(32);
+///     let nonce = get_random_bytes(XCHACHA20_POLY1305_NONCE_SIZE);
+///     let tag = hmac(&key, msg.clone(), algo);
+///     assert!(verify_hmac(&key, msg.clone(), tag, algo));
+/// ```
 #[inline(always)]
 pub fn hmac<B, D>(key: B, msg: D, algo: hmacAlgorithm) -> Tag
 where

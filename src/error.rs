@@ -20,6 +20,10 @@ pub enum CryptoError {
     SignatureError(String),
     #[error("internal error {0}")]
     InternalError(String),
+    #[error("encryption error {0}")]
+    EncryptionError(String),
+    #[error("invalid length error {0}")]
+    InvalidLengthError(String),
     #[error("Unknown Error {0}")]
     UnknownError(String),
 }
@@ -39,5 +43,29 @@ impl From<anyhow::Error> for N3tworkError {
 impl From<CryptoError> for N3tworkError {
     fn from(error: CryptoError) -> Self {
         N3tworkError::InternalError(error.to_string())
+    }
+}
+
+impl From<std::array::TryFromSliceError> for CryptoError {
+    fn from(error: std::array::TryFromSliceError) -> Self {
+        CryptoError::InternalError(error.to_string())
+    }
+}
+
+impl From<chacha20poly1305::Error> for CryptoError {
+    fn from(e: chacha20poly1305::Error) -> Self {
+        CryptoError::EncryptionError(e.to_string())
+    }
+}
+
+impl From<ed25519_dalek::ed25519::Error> for CryptoError {
+    fn from(e: ed25519_dalek::ed25519::Error) -> Self {
+        CryptoError::EncryptionError(e.to_string())
+    }
+}
+
+impl From<ring::error::Unspecified> for CryptoError {
+    fn from(e: ring::error::Unspecified) -> Self {
+        CryptoError::InvalidLengthError(e.to_string())
     }
 }

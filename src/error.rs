@@ -22,6 +22,12 @@ pub enum CryptoError {
     InternalError(String),
     #[error("encryption error {0}")]
     EncryptionError(String),
+    #[error("decryption error {0}")]
+    DecryptionError(String),
+    #[error("cert error {0}")]
+    CertError(String),
+    #[error("key error {0}")]
+    KeyError(String),
     #[error("invalid length error {0}")]
     InvalidLengthError(String),
     #[error("Unknown Error {0}")]
@@ -67,5 +73,12 @@ impl From<ed25519_dalek::ed25519::Error> for CryptoError {
 impl From<ring::error::Unspecified> for CryptoError {
     fn from(e: ring::error::Unspecified) -> Self {
         CryptoError::InvalidLengthError(e.to_string())
+    }
+}
+
+#[cfg(feature = "openssl")]
+impl From<openssl::error::ErrorStack> for CryptoError {
+    fn from(e: openssl::error::ErrorStack) -> Self {
+        CryptoError::InternalError(e.to_string())
     }
 }

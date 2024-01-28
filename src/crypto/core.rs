@@ -13,18 +13,7 @@ use chacha20poly1305::{
 };
 use x25519_dalek::{x25519, X25519_BASEPOINT_BYTES};
 
-pub const PREFIX_ENCRYPTION: [u8; 8] = [0x68, 0x65, 0x79, 0x67, 0x75, 0x72, 0x6c, 0x01]; //TODO
-pub const PREFIX_COMMITMENT: [u8; 8] = [0x68, 0x65, 0x79, 0x67, 0x75, 0x72, 0x6c, 0xff]; // TODO
-
-pub const X25519_SECRET_KEY_SIZE: usize = 32;
-pub const X25519_PUBLIC_KEY_SIZE: usize = 32;
-
-pub const XCHACHA20_POLY1305_NONCE_SIZE: usize = 24;
-pub const XCHACHA20_POLY1305_KEY_SIZE: usize = 32;
-
-pub const ED25519_PUBLIC_KEY_SIZE: usize = 32;
-pub const ED25519_SECRET_KEY_SIZE: usize = 32;
-pub const ED25519_SIGNATURE_SIZE: usize = 64;
+use super::{ED25519_PUBLIC_KEY_SIZE, ED25519_SECRET_KEY_SIZE, PREFIX_ENCRYPTION, X25519_PUBLIC_KEY_SIZE, X25519_SECRET_KEY_SIZE, XCHACHA20_POLY1305_NONCE_SIZE};
 
 pub const NONCE_SIZE: usize = XCHACHA20_POLY1305_NONCE_SIZE;
 
@@ -58,7 +47,10 @@ pub fn new_ed25519_keypair() -> ([u8; ED25519_SECRET_KEY_SIZE], [u8; ED25519_PUB
 /// # Example.
 /// ```rust
 ///     use ring::rand::{self, SecureRandom};
-///     use n3twork::crypto::{x25519_dh, new_x25519_keypair, XCHACHA20_POLY1305_NONCE_SIZE};
+///     use n3twork::crypto::{
+///        XCHACHA20_POLY1305_NONCE_SIZE,
+///       core::{x25519_dh, new_x25519_keypair}
+///     };
 ///     let rng = rand::SystemRandom::new();
 ///     let mut nonce = [0u8; XCHACHA20_POLY1305_NONCE_SIZE];
 ///     rng.fill(&mut nonce).expect("rng.fill failed");
@@ -126,8 +118,9 @@ pub fn kdf_with_nonce(
 /// # Example.
 /// ```rust
 ///     use n3twork::crypto::{
-///         xchacha_decrypt_data, xchacha_encrypt_data, get_random_bytes,
-///         XCHACHA20_POLY1305_NONCE_SIZE, XCHACHA20_POLY1305_KEY_SIZE};
+///         XCHACHA20_POLY1305_NONCE_SIZE, XCHACHA20_POLY1305_KEY_SIZE,
+///         core::{xchacha_decrypt_data, xchacha_encrypt_data, get_random_bytes}
+///         };
 ///     use ring::rand::{self, SecureRandom};
 ///     let rng = rand::SystemRandom::new();
 ///     let mut nonce = [0u8; XCHACHA20_POLY1305_NONCE_SIZE];
@@ -157,8 +150,11 @@ pub fn xchacha_encrypt_data(
 /// # Example.
 /// ```rust
 ///     use n3twork::crypto::{
-///         xchacha_decrypt_data, xchacha_encrypt_data, get_random_bytes,
-///         XCHACHA20_POLY1305_NONCE_SIZE, XCHACHA20_POLY1305_KEY_SIZE};
+///         XCHACHA20_POLY1305_NONCE_SIZE, XCHACHA20_POLY1305_KEY_SIZE,
+///         core::{
+///         xchacha_decrypt_data, xchacha_encrypt_data, get_random_bytes
+///         }
+///     };
 ///     use ring::rand::{self, SecureRandom};
 ///     let rng = rand::SystemRandom::new();
 ///     let mut nonce = [0u8; XCHACHA20_POLY1305_NONCE_SIZE];
@@ -188,8 +184,10 @@ pub fn xchacha_decrypt_data(
 /// # Example.
 /// ```rust
 ///     use n3twork::crypto::{
-///         hmac, verify_hmac, 
-///         get_random_bytes, XCHACHA20_POLY1305_NONCE_SIZE
+///         XCHACHA20_POLY1305_NONCE_SIZE,
+///         core::{
+///             hmac, verify_hmac, get_random_bytes
+///         }
 ///     };
 ///     use ring::hmac;
 ///     let algo = hmac::HMAC_SHA256;
@@ -209,6 +207,23 @@ where
     hmac::sign(&s_key, msg.as_ref())
 }
 
+/// verify hmac
+/// # Example.
+/// ```rust
+///     use n3twork::crypto::{
+///         XCHACHA20_POLY1305_NONCE_SIZE,
+///         core::{
+///             hmac, verify_hmac, get_random_bytes
+///         }
+///     };
+///     use ring::hmac;
+///     let algo = hmac::HMAC_SHA256;
+///     let msg = b"hello world";
+///     let key = get_random_bytes(32);
+///     let nonce = get_random_bytes(XCHACHA20_POLY1305_NONCE_SIZE);
+///     let tag = hmac(&key, msg.clone(), algo);
+///     assert!(verify_hmac(&key, msg.clone(), tag, algo));
+/// ```
 #[inline(always)]
 pub fn verify_hmac<B, D>(key: B, msg: D, tag: Tag, algo: hmacAlgorithm) -> bool
 where
@@ -221,6 +236,8 @@ where
 
 #[cfg(test)]
 mod test_utils {
+
+    use crate::crypto::XCHACHA20_POLY1305_KEY_SIZE;
 
     use super::*;
 

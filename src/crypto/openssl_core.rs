@@ -1,24 +1,26 @@
-use openssl::bn::BigNumContext;
-use openssl::ec::{EcGroup, EcKey, EcPoint, PointConversionForm};
-use openssl::encrypt::{Decrypter, Encrypter};
-use openssl::envelope::{Open, Seal};
-use openssl::hash::MessageDigest;
-use openssl::nid::Nid;
-use openssl::pkey::{HasPrivate, HasPublic, Id, PKey, Params, Private, Public};
-use openssl::rsa::{Padding, Rsa};
-use openssl::sign::{Signer, Verifier};
-use openssl::symm;
+use openssl::{
+    ec::{EcGroup, EcKey},
+    encrypt::{Decrypter, Encrypter},
+    envelope::{Open, Seal},
+    hash::MessageDigest,
+    nid::Nid,
+    pkey::{HasPrivate, HasPublic, Id, PKey, Private, Public},
+    rsa::Rsa,
+    sign::{Signer, Verifier},
+    symm,
+};
 
 use crate::error::CryptoError;
 
+/// New RSA private key
 pub fn ossl_new_rsa_key(bits: Option<u32>) -> Result<PKey<Private>, CryptoError> {
     let rsa = Rsa::generate(bits.unwrap_or(2048))?;
     let sec_key = PKey::from_rsa(rsa)?;
     Ok(sec_key)
 }
 
-/// New elliptic curve key
-/// if curve is none defaults to X9_62_PRIME256V1 IE NIST P-256
+/// New elliptic curve keypair
+/// if curve is None defaults to X9_62_PRIME256V1 IE NIST P-256
 pub fn ossl_new_ec_key(curve: Option<Nid>) -> Result<(PKey<Private>, PKey<Public>), CryptoError> {
     let curve = curve.unwrap_or(Nid::X9_62_PRIME256V1);
 
@@ -33,19 +35,22 @@ pub fn ossl_new_ec_key(curve: Option<Nid>) -> Result<(PKey<Private>, PKey<Public
     Ok((sec_key, pub_key))
 }
 
+/// New ed25519 keypair
 pub fn ossl_new_ed25519_keypair() -> Result<(PKey<Private>, PKey<Public>), CryptoError> {
     let sec_key = PKey::generate_ed25519()?;
     let pub_key = PKey::public_key_from_raw_bytes(&*sec_key.raw_public_key()?, Id::ED25519)?;
     Ok((sec_key, pub_key))
 }
 
+/// New x25519 keypair
 pub fn ossl_new_x25519_keypair() -> Result<(PKey<Private>, PKey<Public>), CryptoError> {
     let sec_key = PKey::generate_x25519()?;
     let pub_key = PKey::public_key_from_raw_bytes(&*sec_key.raw_public_key()?, Id::X25519)?;
     Ok((sec_key, pub_key))
 }
 
-pub fn ossl_env_seal<T, B>(
+/// envelope encryption seal
+pub fn ossl_seal<T, B>(
     pub_keys: &[PKey<T>],
     cipher: symm::Cipher,
     secret: B,
@@ -62,7 +67,8 @@ where
     Ok((seal, encrypted, enc_len))
 }
 
-pub fn ossl_env_open<T, B>(
+/// Envelope encryption unseal
+pub fn ossl_unseal<T, B>(
     sec_key: &PKey<T>,
     cipher: symm::Cipher,
     encrypted_key: B,
@@ -133,16 +139,16 @@ mod test_openssl_crypto {
         let (private_key, public_key) = load_test_public_private();
         let cipher = symm::Cipher::aes_256_cbc();
         let secret = b"My secret message";
-        let (seal, encrypted, enc_len) = ossl_env_seal(&[public_key], cipher, secret).unwrap();
+        let (seal, encrypted, enc_len) = ossl_seal(&[public_key], cipher, secret).unwrap();
         let encrypted_key = &seal.encrypted_keys()[0];
         let iv = seal.iv();
         let (decrypted, dec_len) =
-            ossl_env_open(&private_key, cipher, encrypted_key, &encrypted, enc_len, iv).unwrap();
+            ossl_unseal(&private_key, cipher, encrypted_key, &encrypted, enc_len, iv).unwrap();
         assert_eq!(&secret[..], &decrypted[..dec_len]);
     }
 
     #[test]
-    fn test_encrypt_decrypt() {
+    fn test_ossl_sign_verify() {
         let (keypair, _) = ossl_new_ec_key(None).unwrap();
         let digest_type = MessageDigest::sha256();
         let data = vec![b"data1", b"data2", b"data3"];
@@ -153,10 +159,5 @@ mod test_openssl_crypto {
         assert!(verify.is_ok());
         let verify = verify.unwrap();
         assert!(verify);
-    }
-
-      #[test]
-    fn play() {
-        let (sec_key, pub_key) = ossl_new_ec_key(None).unwrap();
     }
 }

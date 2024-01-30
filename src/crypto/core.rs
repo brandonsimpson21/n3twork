@@ -81,7 +81,7 @@ where
 }
 
 /// new ephemeral keypair
-/// supported algorithms: X25519, ECDH_P256 (TODO) ECDH_P256
+/// supported algorithms: X25519, ECDH_P256
 #[inline(always)]
 pub fn new_ephemeral_keypair(algo: &'static Algorithm) -> (EphemeralPrivateKey, PublicKey) {
     let rng = rand::SystemRandom::new();
@@ -131,22 +131,26 @@ pub fn kdf_with_nonce(
 ///     let shared_key = get_random_bytes(XCHACHA20_POLY1305_KEY_SIZE);
 ///     let plaintext = b"hello world";
 ///     let aad = Some(b"some aad".as_ref());
-///     let ciphertext = xchacha_encrypt_data(&shared_key, plaintext, aad, &nonce).unwrap();
-///     let decrypted = xchacha_decrypt_data(&shared_key, &ciphertext, aad, &nonce).unwrap();
+///     let ciphertext = xchacha_encrypt_data(&shared_key, plaintext, aad, &nonce.to_vec()).unwrap();
+///     let decrypted = xchacha_decrypt_data(&shared_key, &ciphertext, aad, &nonce.to_vec()).unwrap();
 ///     assert_eq!(plaintext, decrypted.as_slice());
 /// ```
-pub fn xchacha_encrypt_data(
-    key: &[u8],
-    message: &[u8],
+pub fn xchacha_encrypt_data<B, D>(
+    key: B,
+    message: D,
     aad: Option<&[u8]>,
-    nonce: &[u8; NONCE_SIZE],
-) -> Result<Vec<u8>, CryptoError> {
+    nonce: B,
+) -> Result<Vec<u8>, CryptoError>
+where
+    B: AsRef<[u8]>,
+    D: AsRef<[u8]>,
+{
     let payload = Payload {
-        msg: message,
+        msg: message.as_ref(),
         aad: aad.unwrap_or(&[]),
     };
-    let cipher = XChaCha20Poly1305::new(key.into());
-    Ok(cipher.encrypt(nonce.into(), payload)?)
+    let cipher = XChaCha20Poly1305::new(key.as_ref().into());
+    Ok(cipher.encrypt(nonce.as_ref().into(), payload)?)
 }
 
 /// decrypt data with xchacha20poly1305
@@ -165,22 +169,26 @@ pub fn xchacha_encrypt_data(
 ///     let shared_key = get_random_bytes(XCHACHA20_POLY1305_KEY_SIZE);
 ///     let plaintext = b"hello world";
 ///     let aad = Some(b"some aad".as_ref());
-///     let ciphertext = xchacha_encrypt_data(&shared_key, plaintext, aad, &nonce).unwrap();
-///     let decrypted = xchacha_decrypt_data(&shared_key, &ciphertext, aad, &nonce).unwrap();
+///     let ciphertext = xchacha_encrypt_data(&shared_key, plaintext, aad, &nonce.to_vec()).unwrap();
+///     let decrypted = xchacha_decrypt_data(&shared_key, &ciphertext, aad, &nonce.to_vec()).unwrap();
 ///     assert_eq!(plaintext, decrypted.as_slice());
 /// ```
-pub fn xchacha_decrypt_data(
-    key: &[u8],
-    ciphertext: &[u8],
+pub fn xchacha_decrypt_data<B, D>(
+    key: B,
+    ciphertext: D,
     aad: Option<&[u8]>,
-    nonce: &[u8; NONCE_SIZE],
-) -> Result<Vec<u8>, CryptoError> {
+    nonce: B,
+) -> Result<Vec<u8>, CryptoError>
+where
+    B: AsRef<[u8]>,
+    D: AsRef<[u8]>,
+{
     let payload = Payload {
-        msg: ciphertext,
+        msg: ciphertext.as_ref(),
         aad: aad.unwrap_or(&[]),
     };
-    let cipher = XChaCha20Poly1305::new(key.into());
-    Ok(cipher.decrypt(nonce.into(), payload)?)
+    let cipher = XChaCha20Poly1305::new(key.as_ref().into());
+    Ok(cipher.decrypt(nonce.as_ref().into(), payload)?)
 }
 
 /// hmac
@@ -237,6 +245,24 @@ where
     hmac::verify(&s_key, msg.as_ref(), tag.as_ref()).is_ok()
 }
 
+fn dh<B, N>(
+    nonce: N,
+    algo: &'static agreement::Algorithm,
+    my_sec: EphemeralPrivateKey,
+    peer_pub: B,
+) -> Result<Vec<u8>, CryptoError>
+where
+    B: AsRef<[u8]>,
+    N: AsRef<[u8]>,
+{
+    let peer_pub = agreement::UnparsedPublicKey::new(algo, peer_pub.as_ref());
+    let shared = agreement::agree_ephemeral(my_sec, &peer_pub, |key_mat| {
+        kdf_with_nonce(key_mat, nonce.as_ref().try_into()?)
+    })?;
+
+    Ok(shared?.to_vec())
+}
+
 #[cfg(test)]
 mod test_utils {
 
@@ -280,40 +306,27 @@ mod test_utils {
         let rng = rand::SystemRandom::new();
         let mut nonce = [0u8; NONCE_SIZE];
         rng.fill(&mut nonce).expect("rng.fill failed");
-
         for algo in vec![&agreement::X25519, &agreement::ECDH_P256] {
             let (alice_sec, alice_pub) = new_ephemeral_keypair(algo);
             let (bob_sec, bob_pub) = new_ephemeral_keypair(algo);
-
-            let alice_shared = agreement::agree_ephemeral(
-                alice_sec,
-                &agreement::UnparsedPublicKey::new(algo, bob_pub.clone()),
-                |key_mat| kdf_with_nonce(key_mat, &nonce),
-            )
-            .expect("alice_shared failed");
-            let bob_shared = agreement::agree_ephemeral(
-                bob_sec,
-                &agreement::UnparsedPublicKey::new(algo, alice_pub.clone()),
-                |key_mat| kdf_with_nonce(key_mat, &nonce),
-            )
-            .expect("bob_shared failed");
+            let alice_shared = dh(&nonce, algo, alice_sec, bob_pub);
+            let bob_shared = dh(&nonce, algo, bob_sec, alice_pub);
             assert!(alice_shared.is_ok());
             assert!(bob_shared.is_ok());
-
             assert_eq!(alice_shared.unwrap(), bob_shared.unwrap());
         }
     }
 
     #[test]
-    fn test_encrypt_decrypt() -> Result<(), CryptoError> {
+    fn test_xchacha_encrypt_decrypt() -> Result<(), CryptoError> {
         let rng = rand::SystemRandom::new();
         let mut nonce = [0u8; NONCE_SIZE];
         rng.fill(&mut nonce).expect("rng.fill failed");
         let shared_key = get_random_bytes(XCHACHA20_POLY1305_KEY_SIZE);
         let plaintext = b"hello world";
         let aad = Some(b"some aad".as_ref());
-        let ciphertext = xchacha_encrypt_data(&shared_key, plaintext, aad, &nonce)?;
-        let decrypted = xchacha_decrypt_data(&shared_key, &ciphertext, aad, &nonce)?;
+        let ciphertext = xchacha_encrypt_data(&*shared_key, &plaintext, aad, &nonce)?;
+        let decrypted = xchacha_decrypt_data(&*shared_key, &ciphertext, aad, &nonce)?;
         assert_eq!(plaintext, decrypted.as_slice());
         Ok(())
     }
@@ -324,7 +337,8 @@ mod test_utils {
         let msg = b"hello world";
         let key = get_random_bytes(32);
         let nonce = get_random_bytes(NONCE_SIZE);
-        let msg = xchacha_encrypt_data(&key, msg, None, &nonce.try_into().unwrap()).unwrap();
+        let msg =
+            xchacha_encrypt_data(&key, &msg.to_vec(), None, &nonce.try_into().unwrap()).unwrap();
         for algo in algos {
             let tag = hmac(&key, msg.clone(), algo);
             assert!(verify_hmac(&key, msg.clone(), tag, algo));

@@ -13,6 +13,8 @@ use chacha20poly1305::{
 };
 use x25519_dalek::{x25519, X25519_BASEPOINT_BYTES};
 
+use sha3::{Digest as Sha3Digest, Sha3_256};
+
 use super::{
     ED25519_PUBLIC_KEY_SIZE, ED25519_SECRET_KEY_SIZE, PREFIX_ENCRYPTION, X25519_PUBLIC_KEY_SIZE,
     X25519_SECRET_KEY_SIZE, XCHACHA20_POLY1305_NONCE_SIZE,
@@ -261,6 +263,17 @@ where
     })?;
 
     Ok(shared?.to_vec())
+}
+
+#[inline(always)]
+pub fn hash_sha256<B: AsRef<[u8]>>(data: B) -> [u8; 256] {
+    let mut hasher = Sha3_256::default();
+    hasher.update(data.as_ref());
+    hasher
+        .finalize()
+        .as_slice()
+        .try_into()
+        .expect("slice with incorrect length")
 }
 
 #[cfg(test)]

@@ -7,17 +7,32 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.79"
+blake3 = { version = "1.5.0", features = ["rayon", "serde", "digest", "mmap"] }
+bytes = { version = "1.5.0", features = ["serde"] }
+chacha20poly1305 = { version = "0.10.1", features = ["stream", "alloc"] }
 ed25519-dalek = { version = "2.1.0", features = ["serde", "rand_core", "signature", "alloc", "zeroize", "batch", "pkcs8", "pem", "digest"] }
 etherparse = "0.13.0"
+hex-literal = "0.4.1"
 http = "1.0.0"
-hyper = { version = "1.1.0", features = ["full"] }
-iroh = { version = "0.12.0", features = ["ed25519-dalek"] }
-pcap = { version = "1.2.0", features = ["all-features", "etherparse", "tokio", "tun-tap", "futures", "capture-stream", "lending-iter"] }
+# hyper = { version = "1.1.0", features = ["full"] }
+ipnet = { version = "2.9.0", features = ["serde", "json"] }
+# pcap = { version = "1.2.0", features = ["all-features", "etherparse", "tokio", "tun-tap", "futures", "capture-stream", "lending-iter"] }
+rand_core = { version = "0.6.4", features = ["alloc", "getrandom", "serde"] }
 reqwest = { version = "0.11.23", features = ["json", "tokio-rustls", "stream"] }
-ring = "0.17.7"
+ring = { version = "0.17.7", features = ["std"] }
 rustls = { version = "0.22.2", features = ["aws_lc_rs"] }
-s2n-quic = { version = "1.32.0", features = ["s2n-quic-tls", "s2n-quic-rustls", "provider-event-tracing", "provider-tls-rustls", "provider-tls-s2n"] }
+rustls-pemfile = "2.0.0"
+# s2n-quic = { version = "1.32.0", features = ["s2n-quic-tls", "s2n-quic-rustls", "provider-event-tracing", "provider-tls-rustls", "provider-tls-s2n"] }
 serde = { version = "1.0.195", features = ["derive", "alloc"] }
+slab = { version = "0.4.9", features = ["serde"] }
 thiserror = "1.0.56"
 tokio = { version = "1.35.1", features = ["full"] }
 tokio-stream = { version = "0.1.14", features = ["full"] }
+tracing = { version = "0.1.40", features = ["log", "async-await"] }
+x25519-dalek = { version = "2.0.0", features = ["serde", "alloc", "getrandom"] }
+zeroize = { version = "1.7.0", features = ["serde", "zeroize_derive"] }
+openssl = { version = "0.10", features = ["vendored"], optional = true }
+
+
+[features]
+openssl = ["dep:openssl"]

@@ -8,6 +8,8 @@ pub enum N3tworkError {
     SendError(String),
     #[error("recv error {0}")]
     RecvError(String),
+    #[error("invalid port range {0}")]
+    InvalidPortRange(String),
     #[error("Internal Error {0}")]
     InternalError(String),
     #[error("Unknown Error {0}")]

@@ -32,6 +32,8 @@ tracing = { version = "0.1.40", features = ["log", "async-await"] }
 x25519-dalek = { version = "2.0.0", features = ["serde", "alloc", "getrandom"] }
 zeroize = { version = "1.7.0", features = ["serde", "zeroize_derive"] }
 openssl = { version = "0.10", features = ["vendored"], optional = true }
+bitflags = { version = "2.4.2", features = ["serde"] }
+sha3 = "0.10.8"
 
 
 [features]

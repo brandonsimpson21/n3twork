@@ -11,6 +11,7 @@ use std::{
 };
 
 use crate::{
+    crypto::core::hash_sha256,
     error::N3tworkError,
     net_types::{Protocol, TrafficDirection},
     timer::TimerWheel,
@@ -22,8 +23,28 @@ pub struct FirewallPacket {
     pub remote_ip: IpAddr,
     pub local_port: u16,
     pub remote_port: u16,
-    pub protocol: u8,
+    pub protocol: Protocol,
     pub fragment: bool,
+}
+
+impl FirewallPacket {
+    pub fn new(
+        local_ip: IpAddr,
+        remote_ip: IpAddr,
+        local_port: u16,
+        remote_port: u16,
+        protocol: Protocol,
+        fragment: bool,
+    ) -> Self {
+        Self {
+            local_ip,
+            remote_ip,
+            local_port,
+            remote_port,
+            protocol,
+            fragment,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -55,14 +76,54 @@ impl FirewallConntrackEntry {
 
 pub struct FirewallConntrack {
     pub conns: BTreeMap<FirewallPacket, FirewallConntrackEntry>,
-    pub timer: Arc<Mutex<TimerWheel<FirewallPacket>>>,
+    pub timer: TimerWheel<FirewallPacket>,
 }
 
 impl FirewallConntrack {
     pub fn new(min: Duration, max: Duration) -> Self {
-        let timer = Arc::new(Mutex::new(TimerWheel::new(min, max)));
+        let timer = TimerWheel::new(min, max);
         let conns = BTreeMap::new();
         Self { conns, timer }
+    }
+
+    pub fn add_conn(
+        &mut self,
+        packet: FirewallPacket,
+        direction: TrafficDirection,
+        timeout: Duration,
+        rules_version: u16,
+    ) -> Result<(), N3tworkError> {
+        if !self.conns.contains_key(&packet) {
+            self.timer.advance(Instant::now());
+            self.timer.add(packet.clone(), timeout);
+        }
+        let entry = FirewallConntrackEntry::new(
+            direction,
+            0,
+            Instant::now() + timeout,
+            Instant::now(),
+            rules_version,
+        );
+        self.conns.insert(packet, entry);
+        Ok(())
+    }
+
+    /// Checks if entry is expired
+    /// if expired removes and returns entry, if not re adds it to timer wheel and returns None
+    pub fn evict(&mut self, packet: &FirewallPacket) -> Option<FirewallConntrackEntry> {
+        if !self.conns.contains_key(packet) {
+            return None;
+        }
+
+        let now = Instant::now();
+        if self.conns[packet].expires > now {
+            self.timer.advance(now);
+            let new_t = self.conns[&packet].expires - now;
+            self.timer.add(packet.clone(), new_t);
+            return None;
+        }
+
+        self.conns.remove(&packet)
     }
 }
 
@@ -439,24 +500,56 @@ impl Firewall {
         }
     }
 
-    pub fn evict(&mut self, packet: FirewallPacket) {
-        let mut conntrack = self.conntrack.lock().unwrap();
-
-        if !conntrack.conns.contains_key(&packet) {
-            return;
-        }
-        if conntrack.conns[&packet].expires < Instant::now() {
-            let mut wheel = conntrack.timer.lock().unwrap();
-            wheel.advance(Instant::now());
-            let new_t = conntrack.conns[&packet].expires - Instant::now();
-            wheel.add(packet.clone(), new_t);
-        }
-
-        conntrack.conns.remove(&packet);
+    pub fn evict(&mut self, packet: &FirewallPacket) -> Option<FirewallConntrackEntry> {
+        self.conntrack.lock().unwrap().evict(&packet)
     }
 
     pub fn toggle_enabled(&self) {
         self.enabled.fetch_xor(true, Ordering::SeqCst);
+    }
+
+    pub fn hash_rule(&self) -> [u8; 32] {
+        hash_sha256(self.rules.as_bytes())
+    }
+
+    pub fn add_conn(
+        &mut self,
+        packet: FirewallPacket,
+        direction: TrafficDirection,
+    ) -> Result<(), N3tworkError> {
+        let timeout = match packet.protocol {
+            Protocol::TCP => self.tcp_timeout,
+            Protocol::UDP => self.udp_timeout,
+            _ => self.default_timeout,
+        };
+        self.conntrack.lock().unwrap().add_conn(
+            packet,
+            direction,
+            timeout,
+            self.rules_version.load(Ordering::SeqCst),
+        )
+    }
+
+    pub fn in_conns(&mut self, packet: &FirewallPacket) -> bool {
+        let mut conntrack = self.conntrack.lock().unwrap();
+        if let Some(p) = conntrack.timer.purge() {
+            _ = conntrack.evict(&p);
+        }
+        if !conntrack.conns.contains_key(packet) {
+            return false;
+        }
+        if let Some(conn) = conntrack.conns.get_mut(packet) {
+            if conn.rules_version != self.rules_version.load(Ordering::SeqCst) {
+                todo!("check rules, validate old version is compatible with new version");
+            }
+            conn.expires = match packet.protocol {
+                Protocol::TCP => Instant::now() + self.tcp_timeout,
+                Protocol::UDP => Instant::now() + self.udp_timeout,
+                _ => Instant::now() + self.default_timeout,
+            };
+        }
+
+        true
     }
 }
 
@@ -512,7 +605,7 @@ mod test_firewall {
     }
 
     #[test]
-    fn test_add_rule_incoming_tcp() {
+    fn test_add_rule_tcp() {
         let mut local_ips = HashSet::new();
         local_ips.insert("1.2.3.4/32".parse().unwrap());
         let mut firewall = Firewall::new(
@@ -544,7 +637,7 @@ mod test_firewall {
     }
 
     #[test]
-    fn test_add_rule_incoming_udp() {
+    fn test_add_rule_udp() {
         let mut local_ips = HashSet::new();
         local_ips.insert("1.2.3.4/32".parse().unwrap());
 
@@ -620,7 +713,7 @@ mod test_firewall {
     }
 
     #[test]
-    fn test_add_rule_incoming_icmp() {
+    fn test_add_rule_icmp() {
         let mut local_ips = HashSet::new();
         local_ips.insert("1.2.3.4/32".parse().unwrap());
 
@@ -653,7 +746,7 @@ mod test_firewall {
     }
 
     #[test]
-    fn test_add_rule_incoming_any() {
+    fn test_add_rule_any() {
         let mut local_ips = HashSet::new();
         local_ips.insert("1.2.3.4/32".parse().unwrap());
 
@@ -741,5 +834,86 @@ mod test_firewall {
             let val = guard.any.get(&0).unwrap();
             assert!(val.any.any);
         }
+    }
+
+    #[test]
+    fn test_add_evict_conn() {
+        let mut local_ips = HashSet::new();
+        local_ips.insert("1.2.3.4/32".parse().unwrap());
+
+        let mut firewall = Firewall::new(
+            Duration::from_secs(1),
+            Duration::from_secs(10),
+            Duration::from_secs(10),
+            local_ips.clone(),
+        );
+
+        let packet = FirewallPacket::new(
+            IpAddr::V4(Ipv4Addr::new(1, 2, 3, 5)),
+            IpAddr::V4(Ipv4Addr::new(1, 2, 3, 6)),
+            80,
+            80,
+            Protocol::TCP,
+            false,
+        );
+
+        assert!(firewall
+            .add_conn(packet.clone(), TrafficDirection::Incoming)
+            .is_ok());
+        assert!(firewall.evict(&packet).is_none());
+        std::thread::sleep(Duration::from_secs(2));
+        assert!(firewall.evict(&packet).is_some());
+    }
+
+    #[test]
+    fn test_in_conns() {
+        let mut local_ips = HashSet::new();
+        local_ips.insert("1.2.3.4/32".parse().unwrap());
+
+        let mut firewall = Firewall::new(
+            Duration::from_secs(1),
+            Duration::from_secs(2),
+            Duration::from_secs(2),
+            local_ips.clone(),
+        );
+
+        let p1 = FirewallPacket::new(
+            IpAddr::V4(Ipv4Addr::new(1, 2, 3, 5)),
+            IpAddr::V4(Ipv4Addr::new(1, 2, 3, 6)),
+            80,
+            80,
+            Protocol::TCP,
+            false,
+        );
+
+        assert!(firewall
+            .add_conn(p1.clone(), TrafficDirection::Incoming)
+            .is_ok());
+        assert!(firewall.in_conns(&p1));
+        let mut p2 = p1.clone();
+        p2.local_ip = IpAddr::V4(Ipv4Addr::new(1, 2, 3, 7));
+        assert!(!firewall.in_conns(&p2));
+        std::thread::sleep(Duration::from_secs(2));
+        assert!(firewall
+            .add_conn(p2.clone(), TrafficDirection::Incoming)
+            .is_ok());
+        assert!(!firewall.in_conns(&p1))
+    }
+
+    #[test]
+    fn test_firewall_times() {
+        let mut local_ips = HashSet::new();
+        local_ips.insert("1.2.3.4/32".parse().unwrap());
+        let second = Duration::from_secs(1);
+        let minute = Duration::from_secs(60);
+        let hour = Duration::from_secs(60 * 60);
+        let firewall = Firewall::new(second, minute, hour, local_ips.clone());
+        assert_eq!(second, firewall.tcp_timeout);
+        assert_eq!(minute, firewall.udp_timeout);
+        assert_eq!(hour, firewall.default_timeout);
+
+        let conntrack = firewall.conntrack.lock().unwrap();
+        assert_eq!(hour, conntrack.timer.wheel_duration);
+        assert_eq!(3602, conntrack.timer.wheel_len);
     }
 }

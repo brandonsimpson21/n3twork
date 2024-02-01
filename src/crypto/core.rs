@@ -266,7 +266,7 @@ where
 }
 
 #[inline(always)]
-pub fn hash_sha256<B: AsRef<[u8]>>(data: B) -> [u8; 256] {
+pub fn hash_sha256<B: AsRef<[u8]>>(data: B) -> [u8; 32] {
     let mut hasher = Sha3_256::default();
     hasher.update(data.as_ref());
     hasher

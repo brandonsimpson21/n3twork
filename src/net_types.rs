@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 bitflags::bitflags! {
@@ -23,13 +24,13 @@ impl Default for TrafficDirection {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 #[allow(clippy::upper_case_acronyms)]
 pub enum Protocol {
-    ANY,
-    TCP,
-    UDP,
-    ICMP,
+    ANY = 0,
+    TCP = 6,
+    UDP = 17,
+    ICMP = 1,
 }
 
 impl fmt::Display for Protocol {

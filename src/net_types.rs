@@ -28,13 +28,36 @@ impl Default for TrafficDirection {
 #[allow(clippy::upper_case_acronyms)]
 pub enum Protocol {
     ANY = 0,
+    ICMP = 1,
     TCP = 6,
     UDP = 17,
-    ICMP = 1,
 }
 
 impl fmt::Display for Protocol {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{self:?}")
+    }
+}
+
+impl From<u8> for Protocol {
+    fn from(p: u8) -> Self {
+        match p {
+            6 => Protocol::TCP,
+            17 => Protocol::UDP,
+            1 => Protocol::ICMP,
+            _ => Protocol::ANY,
+        }
+    }
+}
+
+impl Protocol {
+    #[inline(always)]
+    pub fn to_string(&self) -> String {
+        match self {
+            Protocol::TCP => "TCP".to_string(),
+            Protocol::UDP => "UDP".to_string(),
+            Protocol::ICMP => "ICMP".to_string(),
+            Protocol::ANY => "ANY".to_string(),
+        }
     }
 }

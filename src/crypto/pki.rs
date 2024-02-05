@@ -3,7 +3,7 @@ use chrono::{DateTime, FixedOffset, Utc};
 use ipnet::{IpNet, IpSubnets};
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer, PrivateSec1KeyDer};
 use std::collections::{BTreeSet, HashSet};
-use std::{fs::File, io::BufReader, path::Path};
+use std::{collections::HashMap, fs::File, io::BufReader, path::Path};
 use x509_parser::{certificate::X509Certificate, time::ASN1Time};
 
 use crate::error::CryptoError;
@@ -11,9 +11,9 @@ use crate::error::CryptoError;
 #[derive(Debug, Clone)]
 pub struct CertMetaData {
     pub name: String,
-    pub ips: BTreeSet<IpNet>,
-    pub subnets: BTreeSet<IpSubnets>,
-    pub groups: BTreeSet<String>,
+    pub ips: HashSet<IpNet>,
+    pub subnets: HashSet<IpSubnets>,
+    pub groups: HashSet<String>,
     pub not_before: DateTime<FixedOffset>,
     pub not_after: DateTime<FixedOffset>,
     pub pub_key: Bytes,
@@ -26,9 +26,9 @@ impl Default for CertMetaData {
     fn default() -> Self {
         Self {
             name: String::new(),
-            ips: BTreeSet::new(),
-            subnets: BTreeSet::new(),
-            groups: BTreeSet::new(),
+            ips: HashSet::new(),
+            subnets: HashSet::new(),
+            groups: HashSet::new(),
             not_before: DateTime::from(Utc::now()),
             not_after: DateTime::from(Utc::now()),
             pub_key: Bytes::default(),
@@ -42,9 +42,9 @@ impl Default for CertMetaData {
 impl CertMetaData {
     pub fn new(
         name: &str,
-        ips: BTreeSet<IpNet>,
-        subnet: BTreeSet<IpSubnets>,
-        groups: BTreeSet<String>,
+        ips: HashSet<IpNet>,
+        subnet: HashSet<IpSubnets>,
+        groups: HashSet<String>,
         not_before: DateTime<FixedOffset>,
         not_after: DateTime<FixedOffset>,
         pub_key: Bytes,
@@ -75,9 +75,9 @@ impl CertMetaData {
         let pk = cert.public_key();
         let pk_bytes = pk.raw.iter().cloned().collect::<Bytes>();
         let name = cert.subject().to_string();
-        let ips = BTreeSet::new(); //TODO
-        let subnet = BTreeSet::new(); //TODO
-        let groups = BTreeSet::new(); // TODO
+        let ips = HashSet::new(); //TODO
+        let subnet = HashSet::new(); //TODO
+        let groups = HashSet::new(); // TODO
         let curve = cert.signature_algorithm.oid().to_id_string();
         Ok(Self::new(
             &name, ips, subnet, groups, not_before, not_after, pk_bytes, is_ca, &issuer, &curve,
@@ -134,6 +134,12 @@ impl N3tworkCertificate {
             .map(|c| Self::parse_cert_der(c))
             .collect()
     }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct N3tworkCa {
+    pub ca: HashMap<String, N3tworkCertificate>,
+    pub blocklist: HashSet<String>,
 }
 
 pub fn read_certs<'c, T: AsRef<Path>>(path: T) -> Result<Vec<CertificateDer<'c>>, CryptoError> {

@@ -1,7 +1,7 @@
 use ipnet::{self, IpNet};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     sync::{
         atomic::{AtomicBool, AtomicU16, Ordering},
@@ -11,7 +11,10 @@ use std::{
 };
 
 use crate::{
-    crypto::{core::hash_sha256, pki::N3tworkCertificate},
+    crypto::{
+        core::hash_sha256,
+        pki::{N3tworkCa, N3tworkCertificate},
+    },
     error::{FirewallError, N3tworkError},
     net_types::{Protocol, TrafficDirection},
     timer::TimerWheel,
@@ -21,18 +24,79 @@ use crate::{
 pub struct FirewallPacket {
     pub local_ip: IpAddr,
     pub remote_ip: IpAddr,
-    pub local_port: u16,
-    pub remote_port: u16,
+    pub local_port: i32,
+    pub remote_port: i32,
     pub protocol: Protocol,
     pub fragment: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct FirewallConntrackEntry {
+    pub expires: Instant,
+    pub sent: Instant,
+    pub seq: u32,
+    pub direction: TrafficDirection,
+    pub rules_version: u16,
+}
+
+pub struct FirewallConntrack {
+    pub conns: BTreeMap<FirewallPacket, FirewallConntrackEntry>,
+    pub timer: TimerWheel<FirewallPacket>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct FirewallRule {
+    pub any: bool,
+    pub hosts: HashSet<String>,
+    pub groups: HashSet<String>,
+    pub ip: HashSet<IpNet>,
+    pub local_ip: HashSet<IpNet>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct FirewallCA {
+    any: FirewallRule,
+    ca_names: HashMap<String, FirewallRule>,
+    ca_shas: HashMap<String, FirewallRule>,
+}
+
+type FirewallPort = HashMap<i32, FirewallCA>;
+
+#[derive(Debug, Clone, Default)]
+pub struct FirewallTable {
+    pub any: FirewallPort,
+    pub tcp: FirewallPort,
+    pub udp: FirewallPort,
+    pub icmp: FirewallPort,
+}
+
+pub struct Firewall {
+    pub conntrack: Arc<Mutex<FirewallConntrack>>,
+    pub inbound_rules: Arc<RwLock<FirewallTable>>,
+    pub outbound_rules: Arc<RwLock<FirewallTable>>,
+    pub tcp_timeout: Duration,
+    pub udp_timeout: Duration,
+    pub default_timeout: Duration,
+    pub local_ips: HashSet<IpNet>,
+    pub rules: String,
+    pub rules_version: AtomicU16,
+    pub enabled: AtomicBool,
+}
+
+#[inline(always)]
+fn check_ip_any(ip: IpNet) -> bool {
+    const ANYV4: IpAddr = IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0));
+    const ANYV6: IpAddr = IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0));
+    let net = ip.network();
+    net == ANYV4 || net == ANYV6
 }
 
 impl FirewallPacket {
     pub fn new(
         local_ip: IpAddr,
         remote_ip: IpAddr,
-        local_port: u16,
-        remote_port: u16,
+        local_port: i32,
+        remote_port: i32,
         protocol: Protocol,
         fragment: bool,
     ) -> Self {
@@ -45,15 +109,6 @@ impl FirewallPacket {
             fragment,
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct FirewallConntrackEntry {
-    pub expires: Instant,
-    pub sent: Instant,
-    pub seq: u32,
-    pub direction: TrafficDirection,
-    pub rules_version: u16,
 }
 
 impl FirewallConntrackEntry {
@@ -72,11 +127,6 @@ impl FirewallConntrackEntry {
             rules_version,
         }
     }
-}
-
-pub struct FirewallConntrack {
-    pub conns: BTreeMap<FirewallPacket, FirewallConntrackEntry>,
-    pub timer: TimerWheel<FirewallPacket>,
 }
 
 impl FirewallConntrack {
@@ -123,34 +173,13 @@ impl FirewallConntrack {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct FirewallRule {
-    pub any: bool,
-    pub hosts: BTreeSet<String>,
-    pub groups: BTreeSet<String>,
-    pub ip: BTreeSet<IpNet>,
-    pub local_ip: BTreeSet<IpNet>,
-}
-
-impl Default for FirewallRule {
-    fn default() -> Self {
-        Self {
-            any: false,
-            hosts: BTreeSet::new(),
-            groups: BTreeSet::new(),
-            ip: BTreeSet::new(),
-            local_ip: BTreeSet::new(),
-        }
-    }
-}
-
 impl FirewallRule {
     pub fn new(
         any: bool,
-        hosts: BTreeSet<String>,
-        groups: BTreeSet<String>,
-        ip: BTreeSet<IpNet>,
-        local_ip: BTreeSet<IpNet>,
+        hosts: HashSet<String>,
+        groups: HashSet<String>,
+        ip: HashSet<IpNet>,
+        local_ip: HashSet<IpNet>,
     ) -> Self {
         Self {
             any,
@@ -163,10 +192,10 @@ impl FirewallRule {
     pub fn new_any() -> Self {
         Self {
             any: true,
-            hosts: BTreeSet::new(),
-            groups: BTreeSet::new(),
-            ip: BTreeSet::new(),
-            local_ip: BTreeSet::new(),
+            hosts: Default::default(),
+            groups: Default::default(),
+            ip: Default::default(),
+            local_ip: Default::default(),
         }
     }
 
@@ -182,10 +211,10 @@ impl FirewallRule {
         }
         if FirewallRule::is_any(groups, hosts, ip, local_ip) {
             self.any = true;
-            self.groups.clear();
-            self.hosts.clear();
-            self.ip.clear();
-            self.local_ip.clear();
+            self.groups = Default::default();
+            self.hosts = Default::default();
+            self.ip = Default::default();
+            self.local_ip = Default::default();
             return Ok(());
         }
         if groups.len() > 0 {
@@ -251,42 +280,14 @@ impl FirewallRule {
                 return true;
             }
         }
-        if self.ip.len() > 0 {
-            if self.ip.contains(&IpNet::from(packet.remote_ip)) {
-                return true;
-            }
-        }
-        if self.local_ip.len() > 0 {
-            if self.local_ip.contains(&IpNet::from(packet.local_ip)) {
-                return true;
-            }
+
+        if self.ip.contains(&IpNet::from(packet.remote_ip))
+            || self.local_ip.contains(&IpNet::from(packet.local_ip))
+        {
+            return true;
         }
         false
     }
-}
-#[derive(Debug, Clone)]
-pub struct FirewallCA {
-    any: FirewallRule,
-    ca_names: HashMap<String, FirewallRule>,
-    ca_shas: HashMap<String, FirewallRule>,
-}
-
-impl Default for FirewallCA {
-    fn default() -> Self {
-        Self {
-            any: FirewallRule::default(),
-            ca_names: HashMap::default(),
-            ca_shas: HashMap::default(),
-        }
-    }
-}
-
-#[inline(always)]
-fn check_ip_any(ip: IpNet) -> bool {
-    const ANYV4: IpAddr = IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0));
-    const ANYV6: IpAddr = IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0));
-    let net = ip.network();
-    net == ANYV4 || net == ANYV6
 }
 
 impl FirewallCA {
@@ -341,23 +342,26 @@ impl FirewallCA {
         Ok(())
     }
 
-    pub fn matches(&self, packet: &FirewallPacket, cert: &N3tworkCertificate) -> bool {
+    pub fn matches(
+        &self,
+        packet: &FirewallPacket,
+        cert: &N3tworkCertificate,
+        ca: &N3tworkCa,
+    ) -> bool {
         if self.any.matches(&packet, &cert) {
             return true;
         }
 
-        if let Some(ca) = self.ca_names.get(&cert.metadata.name) {
+        if let Some(ca) = self.ca_shas.get(&cert.metadata.issuer) {
             if ca.matches(&packet, &cert) {
                 return true;
             }
         }
-
-        if let Some(ca) = self
-            .ca_shas
-            .get(&String::from_utf8_lossy(&cert.checksum).to_string())
-        {
-            if ca.matches(&packet, &cert) {
-                return true;
+        if let Some(s) = ca.ca.get(&cert.metadata.issuer) {
+            if let Some(rule) = self.ca_names.get(&s.metadata.name) {
+                if rule.matches(&packet, &cert) {
+                    return true;
+                }
             }
         }
 
@@ -365,18 +369,10 @@ impl FirewallCA {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct FirewallTable {
-    pub any: HashMap<u16, FirewallCA>,
-    pub tcp: HashMap<u16, FirewallCA>,
-    pub udp: HashMap<u16, FirewallCA>,
-    pub icmp: HashMap<u16, FirewallCA>,
-}
-
 impl FirewallTable {
     fn add_all(
-        m: &mut HashMap<u16, FirewallCA>,
-        i: u16,
+        m: &mut FirewallPort,
+        i: i32,
         groups: &[String],
         hosts: &[String],
         ip: Option<IpNet>,
@@ -407,8 +403,8 @@ impl FirewallTable {
     pub fn add_rule(
         &mut self,
         proto: Protocol,
-        start_port: u16,
-        end_port: u16,
+        start_port: i32,
+        end_port: i32,
         groups: &[String],
         hosts: &[String],
         ip: Option<IpNet>,
@@ -426,7 +422,7 @@ impl FirewallTable {
         }
         let mut end_port = end_port;
         if start_port == 0 && end_port == 0 {
-            end_port = u16::MAX;
+            end_port = u16::MAX as i32;
         }
         match proto {
             Protocol::ANY => (start_port..=end_port).for_each(|i| {
@@ -487,6 +483,7 @@ impl FirewallTable {
         packet: &FirewallPacket,
         cert: &N3tworkCertificate,
         direction: TrafficDirection,
+        ca: &N3tworkCa,
     ) -> bool {
         let port = if packet.fragment {
             todo!()
@@ -497,29 +494,29 @@ impl FirewallTable {
             }
         };
 
-        if let Some(ca) = self.any.get(&port) {
-            if ca.matches(packet, cert) {
+        if let Some(fca) = self.any.get(&port) {
+            if fca.matches(packet, cert, ca) {
                 return true;
             }
         }
         match packet.protocol {
             Protocol::TCP => {
-                if let Some(ca) = self.tcp.get(&port) {
-                    if ca.matches(&packet, &cert) {
+                if let Some(fca) = self.tcp.get(&port) {
+                    if fca.matches(packet, cert, ca) {
                         return true;
                     }
                 }
             }
             Protocol::UDP => {
-                if let Some(ca) = self.udp.get(&port) {
-                    if ca.matches(packet, cert) {
+                if let Some(fca) = self.udp.get(&port) {
+                    if fca.matches(packet, cert, ca) {
                         return true;
                     }
                 }
             }
             Protocol::ICMP => {
-                if let Some(ca) = self.icmp.get(&port) {
-                    if ca.matches(packet, cert) {
+                if let Some(fca) = self.icmp.get(&port) {
+                    if fca.matches(packet, cert, ca) {
                         return true;
                     }
                 }
@@ -530,25 +527,12 @@ impl FirewallTable {
     }
 }
 
-pub struct Firewall {
-    pub conntrack: Arc<Mutex<FirewallConntrack>>,
-    pub inbound_rules: Arc<RwLock<FirewallTable>>,
-    pub outbound_rules: Arc<RwLock<FirewallTable>>,
-    pub tcp_timeout: Duration,
-    pub udp_timeout: Duration,
-    pub default_timeout: Duration,
-    pub local_ips: HashSet<IpNet>,
-    pub rules: String,
-    pub rules_version: AtomicU16,
-    pub enabled: AtomicBool,
-}
-
 impl Firewall {
     pub fn new(
         tcp_timeout: Duration,
         udp_timeout: Duration,
         default_timeout: Duration,
-        local_ips: HashSet<IpNet>,
+        cert: N3tworkCertificate,
     ) -> Self {
         let mut min = tcp_timeout;
         let mut max = udp_timeout;
@@ -564,6 +548,12 @@ impl Firewall {
         let inbound_rules = Arc::new(RwLock::new(FirewallTable::default()));
         let outbound_rules = Arc::new(RwLock::new(FirewallTable::default()));
         let rules = String::new();
+        let mut local_ips = cert.metadata.ips.clone();
+
+        for subnet in cert.metadata.subnets.iter() {
+            local_ips.extend(subnet.collect::<Vec<IpNet>>());
+        }
+
         Self {
             conntrack,
             inbound_rules,
@@ -582,8 +572,8 @@ impl Firewall {
         &mut self,
         direction: TrafficDirection,
         proto: Protocol,
-        start_port: u16,
-        end_port: u16,
+        start_port: i32,
+        end_port: i32,
         groups: Vec<String>,
         hosts: Vec<String>,
         ip: Option<IpNet>,
@@ -651,6 +641,8 @@ impl Firewall {
                 Protocol::UDP => Instant::now() + self.udp_timeout,
                 _ => Instant::now() + self.default_timeout,
             };
+        } else {
+            return false;
         }
 
         true
@@ -661,7 +653,8 @@ impl Firewall {
         &mut self,
         packet: &FirewallPacket,
         direction: TrafficDirection,
-        cert: N3tworkCertificate,
+        cert: &N3tworkCertificate,
+        ca: &N3tworkCa,
     ) -> Result<(), N3tworkError> {
         if self.in_conns(packet) {
             return Ok(());
@@ -685,7 +678,7 @@ impl Firewall {
                     .inbound_rules
                     .read()
                     .unwrap()
-                    .matches(&packet, &cert, direction)
+                    .matches(&packet, &cert, direction, ca)
                 {
                     return Err(N3tworkError::InvalidAddress("no matching rule".to_string()));
                 }
@@ -695,7 +688,7 @@ impl Firewall {
                     .outbound_rules
                     .read()
                     .unwrap()
-                    .matches(&packet, &cert, direction)
+                    .matches(&packet, &cert, direction, ca)
                 {
                     return Err(N3tworkError::InvalidAddress("no matching rule".to_string()));
                 }
@@ -714,7 +707,7 @@ impl Firewall {
 mod test_firewall {
 
     use super::*;
-    use chrono::{DateTime, FixedOffset, Months, Utc};
+    use chrono::{DateTime, Months, Utc};
 
     #[test]
     fn test_is_any() {
@@ -766,11 +759,13 @@ mod test_firewall {
     fn test_add_rule_tcp() {
         let mut local_ips = HashSet::new();
         local_ips.insert("1.2.3.4/32".parse().unwrap());
+        let mut cert = N3tworkCertificate::default();
+        cert.metadata.ips = local_ips.clone();
         let mut firewall = Firewall::new(
             Duration::from_secs(1),
             Duration::from_secs(60),
             Duration::from_secs(60 * 3),
-            local_ips.clone(),
+            cert,
         );
         let val = firewall.add_rule(
             TrafficDirection::Incoming,
@@ -798,12 +793,14 @@ mod test_firewall {
     fn test_add_rule_udp() {
         let mut local_ips = HashSet::new();
         local_ips.insert("1.2.3.4/32".parse().unwrap());
+        let mut cert = N3tworkCertificate::default();
+        cert.metadata.ips = local_ips.clone();
 
         let mut firewall = Firewall::new(
             Duration::from_secs(1),
             Duration::from_secs(60),
             Duration::from_secs(60 * 60),
-            local_ips.clone(),
+            cert,
         );
 
         let val = firewall.add_rule(
@@ -874,12 +871,13 @@ mod test_firewall {
     fn test_add_rule_icmp() {
         let mut local_ips = HashSet::new();
         local_ips.insert("1.2.3.4/32".parse().unwrap());
-
+        let mut cert = N3tworkCertificate::default();
+        cert.metadata.ips = local_ips.clone();
         let mut firewall = Firewall::new(
             Duration::from_secs(1),
             Duration::from_secs(60),
             Duration::from_secs(60 * 60),
-            local_ips.clone(),
+            cert,
         );
 
         let val = firewall.add_rule(
@@ -907,12 +905,13 @@ mod test_firewall {
     fn test_add_rule_any() {
         let mut local_ips = HashSet::new();
         local_ips.insert("1.2.3.4/32".parse().unwrap());
-
+        let mut cert = N3tworkCertificate::default();
+        cert.metadata.ips = local_ips.clone();
         let mut firewall = Firewall::new(
             Duration::from_secs(1),
             Duration::from_secs(60),
             Duration::from_secs(60 * 60),
-            local_ips.clone(),
+            cert.clone(),
         );
 
         let local_net: IpNet = "1.2.3.4/32".parse().unwrap();
@@ -942,7 +941,7 @@ mod test_firewall {
             Duration::from_secs(1),
             Duration::from_secs(60),
             Duration::from_secs(60 * 60),
-            local_ips.clone(),
+            cert.clone(),
         );
 
         let val = firewall.add_rule(
@@ -970,7 +969,7 @@ mod test_firewall {
             Duration::from_secs(1),
             Duration::from_secs(60),
             Duration::from_secs(60 * 60),
-            local_ips.clone(),
+            cert,
         );
 
         let val = firewall.add_rule(
@@ -998,12 +997,13 @@ mod test_firewall {
     fn test_add_evict_conn() {
         let mut local_ips = HashSet::new();
         local_ips.insert("1.2.3.4/28".parse().unwrap());
-
+        let mut cert = N3tworkCertificate::default();
+        cert.metadata.ips = local_ips.clone();
         let mut firewall = Firewall::new(
             Duration::from_secs(1),
             Duration::from_secs(10),
             Duration::from_secs(10),
-            local_ips.clone(),
+            cert,
         );
 
         let packet = FirewallPacket::new(
@@ -1027,12 +1027,13 @@ mod test_firewall {
     fn test_in_conns() {
         let mut local_ips = HashSet::new();
         local_ips.insert("1.2.3.4/28".parse().unwrap());
-
+        let mut cert = N3tworkCertificate::default();
+        cert.metadata.ips = local_ips.clone();
         let mut firewall = Firewall::new(
             Duration::from_secs(1),
             Duration::from_secs(2),
             Duration::from_secs(2),
-            local_ips.clone(),
+            cert,
         );
 
         let p1 = FirewallPacket::new(
@@ -1065,7 +1066,9 @@ mod test_firewall {
         let second = Duration::from_secs(1);
         let minute = Duration::from_secs(60);
         let hour = Duration::from_secs(60 * 60);
-        let firewall = Firewall::new(second, minute, hour, local_ips.clone());
+        let mut cert = N3tworkCertificate::default();
+        cert.metadata.ips = local_ips.clone();
+        let firewall = Firewall::new(second, minute, hour, cert.clone());
         assert_eq!(second, firewall.tcp_timeout);
         assert_eq!(minute, firewall.udp_timeout);
         assert_eq!(hour, firewall.default_timeout);
@@ -1079,26 +1082,22 @@ mod test_firewall {
     const TEST_LOCAL_ADDR: &str = "1.2.3.4";
 
     fn make_test_cert() -> N3tworkCertificate {
-        let not_before: DateTime<FixedOffset> = DateTime::from(Utc::now())
-            .checked_sub_months(Months::new(1))
-            .unwrap();
-        let not_after: DateTime<FixedOffset> = DateTime::from(Utc::now())
-            .checked_add_months(Months::new(1))
-            .unwrap();
         let mut cert = N3tworkCertificate::read_from_file("test/certs/RootCA.pem")
             .expect("failed to read cert")[0]
             .clone();
-        let mut local_ips = BTreeSet::new();
-        local_ips.insert(TEST_LOCAL_NET.parse().unwrap());
-        cert.metadata.name = "test_host".to_string();
+        cert.metadata.not_before = DateTime::from(Utc::now())
+            .checked_sub_months(Months::new(1))
+            .unwrap();
+        cert.metadata.not_after = DateTime::from(Utc::now())
+            .checked_add_months(Months::new(1))
+            .unwrap();
+        cert.metadata.ips.insert(TEST_LOCAL_NET.parse().unwrap());
         cert.metadata
             .ips
             .insert(IpNet::from(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4))));
-        cert.metadata.groups.insert("test_group".to_string());
-        cert.metadata.issuer = "test_issuer".to_string();
-        cert.metadata.not_before = chrono::DateTime::from(not_before);
-        cert.metadata.not_after = not_after;
-        cert.metadata.ips = local_ips;
+        cert.metadata.groups.insert("default_group".to_string());
+        cert.metadata.issuer = "signer-shasum".to_string();
+        cert.metadata.name = "host1".into();
         cert
     }
 
@@ -1108,6 +1107,7 @@ mod test_firewall {
         let addr = "172.1.1.1".parse().unwrap();
         let mut table = FirewallTable::default();
         let proto = Protocol::TCP;
+        let ca = N3tworkCa::default();
         table
             .add_rule(
                 proto,
@@ -1192,29 +1192,28 @@ mod test_firewall {
         let direction = TrafficDirection::Incoming;
         let mut packet = FirewallPacket::new(addr, addr, 10, 10, Protocol::TCP, false);
         let cert = good_cert();
-        assert!(table.matches(&packet, &cert, direction));
+        assert!(table.matches(&packet, &cert, direction, &ca));
         packet.protocol = Protocol::UDP;
-        assert!(!table.matches(&packet, &cert, direction));
+        assert!(!table.matches(&packet, &cert, direction, &ca));
         packet.protocol = Protocol::TCP;
         packet.local_port = 11;
-        assert!(!table.matches(&packet, &cert, direction));
+        assert!(!table.matches(&packet, &cert, direction, &ca));
         packet.local_port = 10;
         let mut cert = good_cert();
         cert.metadata.groups.clear();
-        assert!(table.matches(&packet, &cert, direction));
+        assert!(table.matches(&packet, &cert, direction, &ca));
         cert.metadata.name = "host1".to_string();
         // test name
         cert.metadata.groups.clear();
-        assert!(table.matches(&packet, &cert, direction));
+        assert!(table.matches(&packet, &cert, direction, &ca));
     }
 
     #[test]
     fn test_drop_conn() {
-        let mut cert = make_test_cert();
+        let cert = make_test_cert();
         let local_addr = TEST_LOCAL_ADDR.parse().unwrap();
         let remote_addr = TEST_LOCAL_ADDR.parse().unwrap();
-        let mut local_ips = HashSet::new();
-        local_ips.insert(TEST_LOCAL_NET.parse().unwrap());
+        let ca = N3tworkCa::default();
         let local_port = 10;
         let remote_port = 80;
         let protocol = Protocol::UDP;
@@ -1234,7 +1233,7 @@ mod test_firewall {
             Duration::from_secs(1),
             Duration::from_secs(60),
             Duration::from_secs(60 * 60),
-            local_ips.clone(),
+            cert.clone(),
         );
         let _ = firewall.add_rule(
             TrafficDirection::Incoming,
@@ -1250,60 +1249,228 @@ mod test_firewall {
         );
 
         assert!(firewall
-            .drop_conn(&packet, opposite_direction, cert.clone())
+            .drop_conn(&packet, opposite_direction, &cert, &ca)
             .is_err());
         firewall.reset_conntrack();
-        assert!(firewall.drop_conn(&packet, direction, cert.clone()).is_ok());
+        assert!(firewall.drop_conn(&packet, direction, &cert, &ca).is_ok());
         assert!(firewall
-            .drop_conn(&packet, opposite_direction, cert.clone())
+            .drop_conn(&packet, opposite_direction, &cert, &ca)
             .is_ok());
         packet.remote_ip = "1.2.3.10".parse().unwrap();
-        assert!(firewall
-            .drop_conn(&packet, direction, cert.clone())
-            .is_err());
+        assert!(firewall.drop_conn(&packet, direction, &cert, &ca).is_err());
         packet.remote_ip = remote_addr;
+    }
 
-        cert.metadata.issuer = "good_issuer".into();
-        cert.metadata.groups.insert("group1".into());
-        cert.metadata.name = "host1".into();
+    #[test]
+    fn test_signer_drop() {
+        let cert = make_test_cert();
+        let ca = N3tworkCa::default();
+        let mut firewall = Firewall::new(
+            Duration::from_secs(1),
+            Duration::from_secs(60),
+            Duration::from_secs(60 * 60),
+            cert.clone(),
+        );
+        let direction = TrafficDirection::Incoming;
+        let proto = Protocol::ANY;
+
+        let packet = FirewallPacket::new(
+            TEST_LOCAL_ADDR.parse().unwrap(),
+            TEST_LOCAL_ADDR.parse().unwrap(),
+            10,
+            90,
+            proto,
+            false,
+        );
+
+        let _ = firewall.add_rule(
+            direction,
+            proto,
+            0,
+            0,
+            vec!["bad".into()],
+            vec![],
+            None,
+            None,
+            "".into(),
+            "signer-shasum".into(),
+        );
+        let _ = firewall.add_rule(
+            direction,
+            proto,
+            0,
+            0,
+            vec!["default_group".into()],
+            vec![],
+            None,
+            None,
+            "".into(),
+            "signer-shasum-bad".into(),
+        );
+        assert!(firewall.drop_conn(&packet, direction, &cert, &ca).is_err());
+        let mut firewall = Firewall::new(
+            Duration::from_secs(1),
+            Duration::from_secs(60),
+            Duration::from_secs(60 * 60),
+            cert.clone(),
+        );
+
+        let _ = firewall.add_rule(
+            direction,
+            proto,
+            0,
+            0,
+            vec!["bad".into()],
+            vec![],
+            None,
+            None,
+            "".into(),
+            "signer-shasum-bad".into(),
+        );
+        let _ = firewall.add_rule(
+            direction,
+            proto,
+            0,
+            0,
+            vec!["default_group".into()],
+            vec![],
+            None,
+            None,
+            "".into(),
+            "signer-shasum".into(),
+        );
+        assert!(firewall.drop_conn(&packet, direction, &cert, &ca).is_ok());
+    }
+
+    #[test]
+    fn test_ca_sha_drop() {
+        let cert = make_test_cert();
+        let ca = N3tworkCa::default();
+        let mut firewall = Firewall::new(
+            Duration::from_secs(1),
+            Duration::from_secs(60),
+            Duration::from_secs(60 * 60),
+            cert.clone(),
+        );
+        let direction = TrafficDirection::Incoming;
+        let proto = Protocol::ANY;
+
+        let packet = FirewallPacket::new(
+            TEST_LOCAL_ADDR.parse().unwrap(),
+            TEST_LOCAL_ADDR.parse().unwrap(),
+            10,
+            90,
+            proto,
+            false,
+        );
+
+        let _ = firewall.add_rule(
+            direction,
+            proto,
+            0,
+            0,
+            vec!["bad".into()],
+            vec![],
+            None,
+            None,
+            "".into(),
+            "signer-shasum-bad".into(),
+        );
+        let _ = firewall.add_rule(
+            direction,
+            proto,
+            0,
+            0,
+            vec!["default_group".into()],
+            vec![],
+            None,
+            None,
+            "".into(),
+            "signer-shasum".into(),
+        );
+        assert!(firewall.drop_conn(&packet, direction, &cert, &ca).is_ok());
+    }
+
+    #[test]
+    fn test_ca_name_drop() {
+        let cert = make_test_cert();
+        let mut ca = N3tworkCa::default();
+        let mut firewall = Firewall::new(
+            Duration::from_secs(1),
+            Duration::from_secs(60),
+            Duration::from_secs(60 * 60),
+            cert.clone(),
+        );
+        let direction = TrafficDirection::Incoming;
+        let proto = Protocol::ANY;
+
+        let packet = FirewallPacket::new(
+            TEST_LOCAL_ADDR.parse().unwrap(),
+            TEST_LOCAL_ADDR.parse().unwrap(),
+            10,
+            90,
+            proto,
+            false,
+        );
+
+        ca.ca.insert("signer-shasum".into(), cert.clone());
+        let _ = firewall.add_rule(
+            direction,
+            proto,
+            0,
+            0,
+            vec!["bad".into()],
+            vec![],
+            None,
+            None,
+            cert.metadata.name.clone().into(),
+            "".into(),
+        );
+        let _ = firewall.add_rule(
+            direction,
+            proto,
+            0,
+            0,
+            vec!["default_group".into()],
+            vec![],
+            None,
+            None,
+            "ca_name_bad".into(),
+            "".into(),
+        );
+        assert!(firewall.drop_conn(&packet, direction, &cert, &ca).is_err());
 
         let mut firewall = Firewall::new(
             Duration::from_secs(1),
             Duration::from_secs(60),
             Duration::from_secs(60 * 60),
-            local_ips.clone(),
+            cert.clone(),
         );
 
-        firewall
-            .add_rule(
-                direction,
-                Protocol::ANY,
-                0,
-                0,
-                vec!["bad".into()],
-                vec![],
-                None,
-                None,
-                "".into(),
-                "good_issuer".into(),
-            )
-            .unwrap();
-        firewall
-            .add_rule(
-                direction,
-                Protocol::ANY,
-                0,
-                0,
-                vec!["group1".into()],
-                vec![],
-                None,
-                None,
-                "".into(),
-                "bad".into(),
-            )
-            .unwrap();
-        assert!(firewall
-            .drop_conn(&packet, direction, cert.clone())
-            .is_err());
+        let _ = firewall.add_rule(
+            direction,
+            proto,
+            0,
+            0,
+            vec!["bad".into()],
+            vec![],
+            None,
+            None,
+            "ca_name_bad".into(),
+            "".into(),
+        );
+        let _ = firewall.add_rule(
+            direction,
+            proto,
+            0,
+            0,
+            vec!["default_group".into()],
+            vec![],
+            None,
+            None,
+            cert.metadata.name.clone().into(),
+            "".into(),
+        );
+        assert!(firewall.drop_conn(&packet, direction, &cert, &ca).is_ok());
     }
 }

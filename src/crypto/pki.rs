@@ -2,12 +2,8 @@ use bytes::Bytes;
 use chrono::{DateTime, FixedOffset, Utc};
 use ipnet::{IpNet, IpSubnets};
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer, PrivateSec1KeyDer};
-use std::{
-    fs::File,
-    io::BufReader,
-    path::Path,
-};
 use std::collections::{BTreeSet, HashSet};
+use std::{fs::File, io::BufReader, path::Path};
 use x509_parser::{certificate::X509Certificate, time::ASN1Time};
 
 use crate::error::CryptoError;
@@ -17,7 +13,7 @@ pub struct CertMetaData {
     pub name: String,
     pub ips: BTreeSet<IpNet>,
     pub subnets: BTreeSet<IpSubnets>,
-    pub groups: HashSet<String>,
+    pub groups: BTreeSet<String>,
     pub not_before: DateTime<FixedOffset>,
     pub not_after: DateTime<FixedOffset>,
     pub pub_key: Bytes,
@@ -32,7 +28,7 @@ impl Default for CertMetaData {
             name: String::new(),
             ips: BTreeSet::new(),
             subnets: BTreeSet::new(),
-            groups: HashSet::new(),
+            groups: BTreeSet::new(),
             not_before: DateTime::from(Utc::now()),
             not_after: DateTime::from(Utc::now()),
             pub_key: Bytes::default(),
@@ -48,7 +44,7 @@ impl CertMetaData {
         name: &str,
         ips: BTreeSet<IpNet>,
         subnet: BTreeSet<IpSubnets>,
-        groups: HashSet<String>,
+        groups: BTreeSet<String>,
         not_before: DateTime<FixedOffset>,
         not_after: DateTime<FixedOffset>,
         pub_key: Bytes,
@@ -81,7 +77,7 @@ impl CertMetaData {
         let name = cert.subject().to_string();
         let ips = BTreeSet::new(); //TODO
         let subnet = BTreeSet::new(); //TODO
-        let groups = HashSet::new(); // TODO
+        let groups = BTreeSet::new(); // TODO
         let curve = cert.signature_algorithm.oid().to_id_string();
         Ok(Self::new(
             &name, ips, subnet, groups, not_before, not_after, pk_bytes, is_ca, &issuer, &curve,

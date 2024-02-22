@@ -14,8 +14,8 @@ bitflags::bitflags! {
 /// traffic direction (incoming or outgoing).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord, Hash)]
 pub enum TrafficDirection {
-    Incoming,
-    Outgoing,
+    Outgoing = 0,
+    Incoming = 1,
 }
 
 impl Default for TrafficDirection {

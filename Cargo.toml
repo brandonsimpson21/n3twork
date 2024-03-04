@@ -20,7 +20,7 @@ ipnet = { version = "2.9.0", features = ["serde", "json"] }
 rand_core = { version = "0.6.4", features = ["alloc", "getrandom", "serde"] }
 reqwest = { version = "0.11.23", features = ["json", "tokio-rustls", "stream"] }
 ring = { version = "0.17.7", features = ["std"] }
-rustls = { version = "0.22.2", features = ["aws_lc_rs"] }
+rustls = { version = "0.23.1", features = ["aws_lc_rs"] }
 rustls-pemfile = "2.0.0"
 # s2n-quic = { version = "1.32.0", features = ["s2n-quic-tls", "s2n-quic-rustls", "provider-event-tracing", "provider-tls-rustls", "provider-tls-s2n"] }
 serde = { version = "1.0.195", features = ["derive", "alloc"] }

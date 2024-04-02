@@ -10,13 +10,13 @@ use crate::error::N3tworkError;
 use tracing::warn;
 
 pub struct TimerWheel<T> {
-    current_tick: usize,
-    wheel_len: usize,
-    last_tick: Instant,
-    tick_duration: Duration,
-    wheel_duration: Duration,
-    wheel: Slab<VecDeque<T>>,
-    expired: VecDeque<T>,
+    pub current_tick: usize,
+    pub wheel_len: usize,
+    pub last_tick: Instant,
+    pub tick_duration: Duration,
+    pub wheel_duration: Duration,
+    pub wheel: Slab<VecDeque<T>>,
+    pub expired: VecDeque<T>,
 }
 
 impl<T> std::fmt::Debug for TimerWheel<T> {

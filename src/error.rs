@@ -8,8 +8,8 @@ pub enum N3tworkError {
     SendError(String),
     #[error("recv error {0}")]
     RecvError(String),
-    #[error("invalid port range {0}")]
-    InvalidPortRange(String),
+    #[error("invalid address {0}")]
+    InvalidAddress(String),
     #[error("Internal Error {0}")]
     InternalError(String),
     #[error("Unknown Error {0}")]
@@ -34,6 +34,26 @@ pub enum CryptoError {
     InvalidLengthError(String),
     #[error("Unknown Error {0}")]
     UnknownError(String),
+}
+
+#[derive(Error, Debug)]
+pub enum FirewallError {
+    #[error("invalid address {0}")]
+    InvalidAddress(String),
+    #[error("invalid port range {0}")]
+    InvalidPortRange(String),
+    #[error("no matching rule found")]
+    NoMatchingRuleFound,
+    #[error("internal error {0}")]
+    InternalError(String),
+    #[error("Unknown Error {0}")]
+    UnknownError(String),
+}
+
+impl From<FirewallError> for N3tworkError {
+    fn from(error: FirewallError) -> Self {
+        N3tworkError::InternalError(error.to_string())
+    }
 }
 
 impl From<Box<dyn std::error::Error>> for N3tworkError {

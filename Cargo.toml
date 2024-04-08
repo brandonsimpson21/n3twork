@@ -30,7 +30,7 @@ openssl = { version = "0.10", features = ["vendored"], optional = true }
 bitflags = { version = "2.4.2", features = ["serde"] }
 sha3 = "0.10.8"
 rustls-webpki = { version = "0.102.1"}
-x509-parser = { version = "0.15.1", features = ["ring", "validate", "verify"] }
+x509-parser = { version = "0.16.0", features = ["ring", "validate", "verify"] }
 chrono = { version = "0.4.33", features = ["serde", "alloc"] }
 
 

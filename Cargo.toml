@@ -18,7 +18,7 @@ http = "1.0.0"
 ipnet = { version = "2.9.0", features = ["serde", "json"] }
 rand_core = { version = "0.6.4", features = ["alloc", "getrandom", "serde"] }
 ring = { version = "0.17.7", features = ["std"] }
-rustls = { version = "0.22.2"}
+rustls = { version = "0.23.4"}
 rustls-pemfile = "2.0.0"
 serde = { version = "1.0.195", features = ["derive", "alloc"] }
 slab = { version = "0.4.9", features = ["serde"] }

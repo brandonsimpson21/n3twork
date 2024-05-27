@@ -12,7 +12,7 @@ bytes = { version = "1.5.0", features = ["serde"] }
 chacha20poly1305 = { version = "0.10.1", features = ["stream", "alloc"] }
 ed25519-dalek = { version = "2.1.0", features = ["serde", "rand_core", "signature", "alloc", "zeroize", "batch", "pkcs8", "pem", "digest"] }
 x25519-dalek = { version = "2.0.0", features = ["serde", "alloc", "getrandom"] }
-etherparse = "0.14.3"
+etherparse = "0.15.0"
 hex-literal = "0.4.1"
 http = "1.0.0"
 ipnet = { version = "2.9.0", features = ["serde", "json"] }

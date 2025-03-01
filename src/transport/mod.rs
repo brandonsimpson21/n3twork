@@ -6,6 +6,8 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpStream, ToSocketAddrs};
 use tracing::{error, trace};
 
+pub mod tcp;
+
 #[derive(Debug, Clone, Copy)]
 pub struct SocketOpts {
     nodelay: Option<bool>,
@@ -58,5 +60,5 @@ pub trait Transport: Debug + Send + Sync {
         a: &Self::Acceptor,
     ) -> Result<(Self::RawStream, SocketAddr), N3tworkError>;
     async fn handshake(&self, conn: Self::RawStream) -> Result<Self::Stream, N3tworkError>;
-    async fn connect(&self, addr: impl ToSocketAddrs) -> Result<Self::Stream, N3tworkError>;
+    async fn connect<T: ToSocketAddrs + Send + Sync>(&self, addr: &T) -> Result<Self::Stream, N3tworkError>;
 }

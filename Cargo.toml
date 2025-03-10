@@ -22,7 +22,7 @@ rustls = { version = "0.23.4"}
 rustls-pemfile = "2.0.0"
 serde = { version = "1.0.195", features = ["derive", "alloc"] }
 slab = { version = "0.4.9", features = ["serde"] }
-thiserror = "1.0.56"
+thiserror = "2.0.12"
 tokio = { version = "1.35.1", features = ["full"] }
 tokio-stream = { version = "0.1.14", features = ["full"] }
 tracing = { version = "0.1.40", features = ["log", "async-await"] }

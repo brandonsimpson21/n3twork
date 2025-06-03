@@ -60,5 +60,8 @@ pub trait Transport: Debug + Send + Sync {
         a: &Self::Acceptor,
     ) -> Result<(Self::RawStream, SocketAddr), N3tworkError>;
     async fn handshake(&self, conn: Self::RawStream) -> Result<Self::Stream, N3tworkError>;
-    async fn connect<T: ToSocketAddrs + Send + Sync>(&self, addr: &T) -> Result<Self::Stream, N3tworkError>;
+    async fn connect<T: ToSocketAddrs + Send + Sync>(
+        &self,
+        addr: &T,
+    ) -> Result<Self::Stream, N3tworkError>;
 }
